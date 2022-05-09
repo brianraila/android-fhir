@@ -14,15 +14,15 @@
  limitations under the License.
 -->
 <resources>
-  <string name="app_name">Structured Data Capture Catalog</string>
+  <string name="app_name">Mother Child Handbook</string>
   <string name="submit_button_text">Submit</string>
   <string name="component_nav_heading">Components</string>
   <string name="layout_nav_heading">Layouts</string>
-  <string name="component_name_multiple_choice">Multiple choice</string>
-  <string name="component_name_single_choice">Single choice</string>
-  <string name="component_name_boolean_choice">Boolean choice</string>
-  <string name="component_name_open_choice">Open choice</string>
-  <string name="component_name_text_field">Text field </string>
+  <string name="component_name_multiple_choice">Profile</string>
+  <string name="component_name_single_choice">ANC Patient Registration</string>
+  <string name="component_name_boolean_choice">Confirm Pregnancy</string>
+  <string name="component_name_open_choice">Physical Exam</string>
+  <string name="component_name_text_field">Close ANC Record</string>
   <string name="component_name_date_picker">Date picker</string>
   <string name="component_name_date_time_picker">DateTime picker</string>
   <string name="component_name_modal">Modal</string>
@@ -33,7 +33,7 @@
   <string name="layout_name_paginated">Paginated</string>
   <string name="layout_name_review">Review</string>
   <string name="layout_name_read_only">Read only</string>
-  <string name="toolbar_text">Structured data capture \n Catalog</string>
+  <string name="toolbar_text">Mother Child Handbook</string>
   <string
         name="questionnaire_response_title"
     >Default sample questionnaire</string>

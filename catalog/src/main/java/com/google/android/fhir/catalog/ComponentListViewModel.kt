@@ -37,28 +37,28 @@ class ComponentListViewModel(application: Application, private val state: SavedS
     SINGLE_CHOICE(
       R.drawable.ic_singlechoice,
       R.string.component_name_single_choice,
-      "single_choice_questionnaire.json"
+      "anc-forms/Questionnaire-ANCA.json"
     ),
     BOOLEAN_CHOICE(
       R.drawable.ic_booleanchoice,
       R.string.component_name_boolean_choice,
-      "boolean_choice_questionnaire.json"
+      "anc-forms/Questionnaire-ANCB4.json"
     ),
     MULTIPLE_CHOICE(
       R.drawable.ic_multiplechoice,
       R.string.component_name_multiple_choice,
-      "multi_select_choice_questionnaire.json"
+      "anc-forms/Questionnaire-ANCB6.json"
     ),
     DROPDOWN(
       R.drawable.ic_group_1278,
       R.string.component_name_dropdown,
-      "dropdown-questionnaire.json"
+      "anc-forms/Questionnaire-ANCB8.json"
     ),
     MODAL(R.drawable.ic_modal, R.string.component_name_modal, "modal-questionnaire.json"),
     OPEN_CHOICE(
       R.drawable.ic_openchoice,
       R.string.component_name_open_choice,
-      "open-choice-questionnaire.json"
+      "anc-forms/Questionnaire-ANCEnd.json"
     ),
     TEXT_FIELD(
       R.drawable.ic_textfield,
