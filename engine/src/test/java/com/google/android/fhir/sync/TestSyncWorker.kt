@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,14 +19,13 @@ package com.google.android.fhir.sync
 import android.content.Context
 import androidx.work.WorkerParameters
 import com.google.android.fhir.resource.TestingUtils
-import org.hl7.fhir.r4.model.ResourceType
 
 class TestSyncWorker(appContext: Context, workerParams: WorkerParameters) :
   FhirSyncWorker(appContext, workerParams) {
 
-  override fun getSyncData() = mapOf(ResourceType.Patient to mapOf("address-city" to "NAIROBI"))
-
   override fun getDataSource() = TestingUtils.TestDataSourceImpl
 
   override fun getFhirEngine() = TestingUtils.TestFhirEngineImpl
+
+  override fun getDownloadWorkManager() = TestingUtils.TestDownloadManagerImpl()
 }

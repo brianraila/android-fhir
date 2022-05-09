@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,30 +16,41 @@
 
 package com.google.android.fhir.datacapture.mapping
 
+import android.app.Application
 import android.os.Build
 import androidx.test.core.app.ApplicationProvider
 import ca.uhn.fhir.context.FhirContext
 import ca.uhn.fhir.parser.IParser
-import com.google.android.fhir.datacapture.utilities.NpmPackageProvider
+import com.google.android.fhir.datacapture.views.localDate
 import com.google.common.truth.Truth.assertThat
 import java.math.BigDecimal
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.UUID
 import kotlinx.coroutines.runBlocking
-import org.hl7.fhir.r4.context.SimpleWorkerContext
+import org.hl7.fhir.exceptions.FHIRException
 import org.hl7.fhir.r4.model.Address
+import org.hl7.fhir.r4.model.Annotation
+import org.hl7.fhir.r4.model.Base
 import org.hl7.fhir.r4.model.BooleanType
-import org.hl7.fhir.r4.model.Bundle
+import org.hl7.fhir.r4.model.Coding
 import org.hl7.fhir.r4.model.ContactPoint
 import org.hl7.fhir.r4.model.DateType
 import org.hl7.fhir.r4.model.Enumerations
+import org.hl7.fhir.r4.model.Expression
+import org.hl7.fhir.r4.model.Extension
 import org.hl7.fhir.r4.model.HumanName
+import org.hl7.fhir.r4.model.Immunization
+import org.hl7.fhir.r4.model.MarkdownType
 import org.hl7.fhir.r4.model.Observation
 import org.hl7.fhir.r4.model.Patient
 import org.hl7.fhir.r4.model.Questionnaire
 import org.hl7.fhir.r4.model.QuestionnaireResponse
+import org.hl7.fhir.r4.model.RelatedPerson
+import org.hl7.fhir.r4.model.ResourceFactory
 import org.hl7.fhir.r4.model.StringType
-import org.hl7.fhir.r4.model.StructureMap
+import org.hl7.fhir.r4.model.codesystems.AdministrativeGender
+import org.hl7.fhir.r4.terminologies.ConceptMapEngine
 import org.hl7.fhir.r4.utils.StructureMapUtilities
 import org.intellij.lang.annotations.Language
 import org.junit.Test
@@ -48,10 +59,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [Build.VERSION_CODES.P], shadows = [ShadowNpmPackageProvider::class])
+@Config(sdk = [Build.VERSION_CODES.P])
 class ResourceMapperTest {
+  private val context = ApplicationProvider.getApplicationContext<Application>()
+
   @Test
-  fun `extract() should perform definition-based extraction`() {
+  fun `extract() should perform definition-based extraction`() = runBlocking {
     // https://developer.commure.com/docs/apis/sdc/examples#definition-based-extraction
     @Language("JSON")
     val questionnaireJson =
@@ -337,7 +350,7 @@ class ResourceMapperTest {
                   "linkId": "PR-name",
                   "item": [
                     {
-                      "linkId": "PR-name-given",
+                       "linkId": "PR-name-text",
                       "answer": [
                         {
                           "valueString": "John"
@@ -395,9 +408,6 @@ class ResourceMapperTest {
                 {
                   "linkId": "PR-telecom",
                   "item": [
-                    {
-                      "linkId": "PR-telecom-system"
-                    },
                     {
                       "linkId": "PR-telecom-value",
                       "answer": [
@@ -465,14 +475,10 @@ class ResourceMapperTest {
       iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
         QuestionnaireResponse
 
-    val patient: Patient
-
-    runBlocking {
-      patient =
-        ResourceMapper.extract(uriTestQuestionnaire, uriTestQuestionnaireResponse).entry[0]
-          .resource as
-          Patient
-    }
+    val patient =
+      ResourceMapper.extract(uriTestQuestionnaire, uriTestQuestionnaireResponse).entry[0]
+        .resource as
+        Patient
 
     assertThat(patient.birthDate).isEqualTo("2021-01-01".toDateFromFormatYyyyMmDd())
     assertThat(patient.active).isTrue()
@@ -481,10 +487,149 @@ class ResourceMapperTest {
     assertThat(patient.multipleBirthIntegerType.value).isEqualTo(2)
     assertThat(patient.contact[0].name.given.first().toString()).isEqualTo("Brenda")
     assertThat(patient.contact[0].name.family).isEqualTo("Penman")
+    assertThat(patient.telecom[0].system).isNull()
+    assertThat(patient.telecom[0].value).isEqualTo("+254711001122")
   }
 
   @Test
-  fun `extract() should perform definition-based extraction with unanswered questions`() {
+  fun `extract() should extract choice value fields`() = runBlocking {
+    // https://developer.commure.com/docs/apis/sdc/examples#definition-based-extraction
+    @Language("JSON")
+    val questionnaireJson =
+      """
+            {
+              "resourceType": "Questionnaire",
+              "item": [
+                {
+                  "linkId": "9",
+                  "type": "group",
+                  "extension": [
+                    {
+                      "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-itemExtractionContext",
+                      "valueExpression": {
+                        "expression": "Observation"
+                      }
+                    }
+                  ],
+                  "item": [
+                    {
+                      "linkId": "9.1",
+                      "type": "string",
+                      "definition": "https://hl7.org/fhir/R4/observation.html#Observation.valueString"
+                    },
+                    {
+                      "linkId": "9.1.3",
+                      "type": "string",
+                      "definition": "http://hl7.org/fhir/StructureDefinition/Observation#Observation.code",
+                      "extension": [
+                        {
+                          "url": "http://hl7.org/fhir/StructureDefinition/questionnaire-hidden",
+                          "valueBoolean": true
+                        }
+                      ],
+                      "initial": [
+                        {
+                          "valueCoding": {
+                            "code": "8888",
+                            "display": "dummy",
+                            "system": "dummy"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+      """.trimIndent()
+
+    @Language("JSON")
+    val questionnaireResponseJson =
+      """
+            {
+              "resourceType": "QuestionnaireResponse",
+              "item": [
+                {
+                  "linkId": "9",
+                  "item": [
+                    {
+                      "linkId": "9.1",
+                      "answer": [
+                        {
+                          "valueString": "world"
+                        }
+                      ]
+                    },
+                    {
+                      "linkId": "9.1.3",
+                      "answer": [
+                        {
+                          "valueCoding": {
+                            "system": "dummy",
+                            "code": "8888",
+                            "display": "dummy"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+      """.trimIndent()
+
+    val iParser: IParser = FhirContext.forR4().newJsonParser()
+
+    val uriTestQuestionnaire =
+      iParser.parseResource(Questionnaire::class.java, questionnaireJson) as Questionnaire
+
+    val uriTestQuestionnaireResponse =
+      iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
+        QuestionnaireResponse
+
+    val observation =
+      ResourceMapper.extract(uriTestQuestionnaire, uriTestQuestionnaireResponse)
+        .entry
+        .single()
+        .resource as
+        Observation
+
+    assertThat(observation.valueStringType.value).isEqualTo("world")
+  }
+
+  @Test
+  fun `populate() should correctly populate current date from fhirpath expression in QuestionnaireResponse`() =
+      runBlocking {
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "patient-dob"
+            type = Questionnaire.QuestionnaireItemType.TEXT
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "today()"
+                  }
+                )
+              )
+          }
+        )
+
+    val patientId = UUID.randomUUID().toString()
+    val patient = Patient().apply { id = "Patient/$patientId/_history/2" }
+    val questionnaireResponse = ResourceMapper.populate(questionnaire, patient)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as DateType).localDate)
+      .isEqualTo((DateType(Date())).localDate)
+  }
+
+  @Test
+  fun `extract() should perform definition-based extraction with unanswered questions`() =
+      runBlocking {
     @Language("JSON")
     val questionnaireJson =
       """
@@ -575,7 +720,7 @@ class ResourceMapperTest {
                     {
                       "linkId": "PR-telecom-system",
                       "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.telecom.system",
-                      "type": "string",
+                      "type": "string", 
                       "text": "system",
                       "initial": [
                         {
@@ -608,7 +753,7 @@ class ResourceMapperTest {
             }
           ]
         }
-      """.trimIndent()
+        """.trimIndent()
 
     @Language("JSON")
     val questionnaireResponseJson =
@@ -701,7 +846,7 @@ class ResourceMapperTest {
             }
           ]
         }
-      """.trimIndent()
+        """.trimIndent()
 
     val iParser: IParser = FhirContext.forR4().newJsonParser()
 
@@ -712,14 +857,11 @@ class ResourceMapperTest {
       iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
         QuestionnaireResponse
 
-    val patient: Patient
+    val patient =
+      ResourceMapper.extract(uriTestQuestionnaire, uriTestQuestionnaireResponse).entry[0]
+        .resource as
+        Patient
 
-    runBlocking {
-      patient =
-        ResourceMapper.extract(uriTestQuestionnaire, uriTestQuestionnaireResponse).entry[0]
-          .resource as
-          Patient
-    }
     assertThat(patient.birthDate).isEqualTo("2016-02-11".toDateFromFormatYyyyMmDd())
     assertThat(patient.active).isFalse()
     assertThat(patient.telecom.get(0).value).isNull()
@@ -728,7 +870,9 @@ class ResourceMapperTest {
   }
 
   @Test
-  fun populateResourceAnswers() {
+  fun `populate() should fill QuestionnaireResponse with values when given a single Resource`() =
+      runBlocking {
+    @Language("JSON")
     val questionnaireJson =
       """
         {
@@ -920,7 +1064,7 @@ class ResourceMapperTest {
     }
   ]
 }
-      """.trimIndent()
+        """.trimIndent()
 
     val iParser: IParser = FhirContext.forR4().newJsonParser()
 
@@ -929,8 +1073,7 @@ class ResourceMapperTest {
         Questionnaire
 
     val patient = createPatientResource()
-    val response: QuestionnaireResponse
-    runBlocking { response = ResourceMapper.populate(uriTestQuestionnaire, patient) }
+    val response = ResourceMapper.populate(uriTestQuestionnaire, patient)
 
     val responseItem = response.item[0]
     assertThat(((responseItem.item[0].item[0].answer[0]).value as StringType).valueAsString)
@@ -949,6 +1092,291 @@ class ResourceMapperTest {
       .isEqualTo("Pakistan")
     assertThat(((responseItem.item[5].answer[0]).value as BooleanType).booleanValue())
       .isEqualTo(true)
+  }
+
+  @Test
+  fun `populate() should fill QuestionnaireResponse with values when given multiple Resources`() =
+      runBlocking {
+    val relatedPerson =
+      RelatedPerson().apply {
+        name =
+          listOf(
+            HumanName().apply {
+              given = listOf(StringType("John"))
+              family = "Doe"
+            }
+          )
+        birthDate = "1990-05-20".toDateFromFormatYyyyMmDd()
+      }
+
+    val observation =
+      Observation().apply {
+        value = StringType("Allergic to dairy products and proteins")
+        note = listOf(Annotation(MarkdownType("Patient Registration Comments")))
+      }
+
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "first-name"
+            type = Questionnaire.QuestionnaireItemType.TEXT
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Patient.name.given"
+                  }
+                )
+              )
+          }
+        )
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "related-person-details"
+            type = Questionnaire.QuestionnaireItemType.GROUP
+            item =
+              listOf(
+                Questionnaire.QuestionnaireItemComponent().apply {
+                  linkId = "rp-family-name"
+                  type = Questionnaire.QuestionnaireItemType.TEXT
+                  extension =
+                    listOf(
+                      Extension(
+                        ITEM_INITIAL_EXPRESSION_URL,
+                        Expression().apply {
+                          language = "text/fhirpath"
+                          expression = "RelatedPerson.name.family"
+                        }
+                      )
+                    )
+                }
+              )
+          }
+        )
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "related-person-dob"
+            type = Questionnaire.QuestionnaireItemType.DATE
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "RelatedPerson.birthDate"
+                  }
+                )
+              )
+          }
+        )
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "comments"
+            type = Questionnaire.QuestionnaireItemType.TEXT
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Observation.value"
+                  }
+                )
+              )
+          }
+        )
+
+    val patient = createPatientResource()
+    val questionnaireResponse =
+      ResourceMapper.populate(questionnaire, patient, relatedPerson, observation)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as StringType).valueAsString)
+      .isEqualTo("Salman")
+    assertThat(
+        ((questionnaireResponse.item[1].item[0].answer[0]).value as StringType).valueAsString
+      )
+      .isEqualTo("Doe")
+    assertThat(((questionnaireResponse.item[2].answer[0]).value as DateType).valueAsString)
+      .isEqualTo("1990-05-20")
+    assertThat(((questionnaireResponse.item[3].answer[0]).value as StringType).valueAsString)
+      .isEqualTo("Allergic to dairy products and proteins")
+  }
+
+  @Test
+  fun `populate() should correctly populate IdType value in QuestionnaireResponse`() = runBlocking {
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "patient-id"
+            type = Questionnaire.QuestionnaireItemType.TEXT
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Patient.id"
+                  }
+                )
+              )
+          }
+        )
+
+    val patientId = UUID.randomUUID().toString()
+    val patient = Patient().apply { id = "Patient/$patientId" }
+    val questionnaireResponse = ResourceMapper.populate(questionnaire, patient)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as StringType).value)
+      .isEqualTo(patientId)
+  }
+
+  @Test
+  fun `populate() should correctly populate IdType value with history in QuestionnaireResponse`() =
+      runBlocking {
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "patient-id"
+            type = Questionnaire.QuestionnaireItemType.TEXT
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Patient.id"
+                  }
+                )
+              )
+          }
+        )
+
+    val patientId = UUID.randomUUID().toString()
+    val patient = Patient().apply { id = "Patient/$patientId/_history/2" }
+    val questionnaireResponse = ResourceMapper.populate(questionnaire, patient)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as StringType).value)
+      .isEqualTo(patientId)
+  }
+
+  @Test
+  fun `populate() should correctly populate Enumeration value in QuestionnaireResponse`() =
+      runBlocking {
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "patient-gender"
+            type = Questionnaire.QuestionnaireItemType.CHOICE
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Patient.gender"
+                  }
+                )
+              )
+            answerOption =
+              listOf(
+                Questionnaire.QuestionnaireItemAnswerOptionComponent(
+                  Coding().apply {
+                    code = AdministrativeGender.MALE.toCode()
+                    display = AdministrativeGender.MALE.display
+                  }
+                ),
+                Questionnaire.QuestionnaireItemAnswerOptionComponent(
+                  Coding().apply {
+                    code = AdministrativeGender.FEMALE.toCode()
+                    display = AdministrativeGender.FEMALE.display
+                  }
+                )
+              )
+          }
+        )
+
+    val patient = Patient().apply { gender = Enumerations.AdministrativeGender.FEMALE }
+    val questionnaireResponse = ResourceMapper.populate(questionnaire, patient)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as Coding).code).isEqualTo("female")
+    assertThat((questionnaireResponse.item[0].answer[0].value as Coding).display)
+      .isEqualTo("Female")
+  }
+
+  @Test
+  fun `populate() should populate nested non-group questions`() = runBlocking {
+    val questionnaire =
+      Questionnaire()
+        .addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            linkId = "patient-gender"
+            type = Questionnaire.QuestionnaireItemType.CHOICE
+            extension =
+              listOf(
+                Extension(
+                  ITEM_INITIAL_EXPRESSION_URL,
+                  Expression().apply {
+                    language = "text/fhirpath"
+                    expression = "Patient.gender"
+                  }
+                )
+              )
+            answerOption =
+              listOf(
+                Questionnaire.QuestionnaireItemAnswerOptionComponent(
+                  Coding().apply {
+                    code = AdministrativeGender.MALE.toCode()
+                    display = AdministrativeGender.MALE.display
+                  }
+                ),
+                Questionnaire.QuestionnaireItemAnswerOptionComponent(
+                  Coding().apply {
+                    code = AdministrativeGender.FEMALE.toCode()
+                    display = AdministrativeGender.FEMALE.display
+                  }
+                )
+              )
+            item =
+              listOf(
+                Questionnaire.QuestionnaireItemComponent().apply {
+                  linkId = "patient-id"
+                  type = Questionnaire.QuestionnaireItemType.TEXT
+                  extension =
+                    listOf(
+                      Extension(
+                        ITEM_INITIAL_EXPRESSION_URL,
+                        Expression().apply {
+                          language = "text/fhirpath"
+                          expression = "Patient.id"
+                        }
+                      )
+                    )
+                }
+              )
+          }
+        )
+
+    val patientId = UUID.randomUUID().toString()
+    val patient =
+      Patient().apply {
+        gender = Enumerations.AdministrativeGender.FEMALE
+        id = "Patient/$patientId/_history/2"
+      }
+    val questionnaireResponse = ResourceMapper.populate(questionnaire, patient)
+
+    assertThat((questionnaireResponse.item[0].answer[0].value as Coding).code).isEqualTo("female")
+    assertThat((questionnaireResponse.item[0].answer[0].value as Coding).display)
+      .isEqualTo(AdministrativeGender.FEMALE.display)
+    assertThat(
+        (questionnaireResponse.item[0].answer[0].item[0].answer[0].value as StringType).value
+      )
+      .isEqualTo(patientId)
   }
 
   private fun createPatientResource(): Patient {
@@ -975,7 +1403,7 @@ class ResourceMapperTest {
   }
 
   @Test
-  fun `extract() should perform StructureMap-based extraction`() {
+  fun `extract() should perform StructureMap-based extraction`() = runBlocking {
     @Language("JSON")
     val questionnaireJson =
       """
@@ -1203,19 +1631,8 @@ class ResourceMapperTest {
         }
       """.trimIndent()
 
-    val contextR4: SimpleWorkerContext
-
-    runBlocking {
-      contextR4 =
-        SimpleWorkerContext.fromPackage(
-          NpmPackageProvider.loadNpmPackage(ApplicationProvider.getApplicationContext())
-        )
-    }
-    contextR4.isCanRunWithoutTerminology = true
-    val structureMapUtilities = StructureMapUtilities(contextR4)
-    val map: StructureMap =
-      structureMapUtilities.parse(
-        """map "http://hl7.org/fhir/StructureMap/PatientRegistration" = 'PatientRegistration'
+    val mapping =
+      """map "http://hl7.org/fhir/StructureMap/PatientRegistration" = 'PatientRegistration'
 
         uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireReponse" as source
         uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
@@ -1240,9 +1657,7 @@ class ResourceMapperTest {
                     src -> patientName.given = evaluate(nameItem, ${"$"}this.item.where(linkId = 'PR-name-given').answer.value) "rule_e";
                  };
              };
-        }""",
-        "FHIRMapperTutorial"
-      )
+        }"""
 
     val iParser: IParser = FhirContext.forR4().newJsonParser()
 
@@ -1253,17 +1668,14 @@ class ResourceMapperTest {
       iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
         QuestionnaireResponse
 
-    val bundle: Bundle
-
-    runBlocking {
-      bundle =
-        ResourceMapper.extract(
-          uriTestQuestionnaire,
-          uriTestQuestionnaireResponse,
-          { map },
-          ApplicationProvider.getApplicationContext()
-        )
-    }
+    val bundle =
+      ResourceMapper.extract(
+        uriTestQuestionnaire,
+        uriTestQuestionnaireResponse,
+        StructureMapExtractionContext(context = context) { _, worker ->
+          StructureMapUtilities(worker).parse(mapping, "")
+        },
+      )
 
     val patient = bundle.entry.get(0).resource as Patient
     assertThat(patient.birthDate).isEqualTo("2016-02-11".toDateFromFormatYyyyMmDd())
@@ -1273,7 +1685,96 @@ class ResourceMapperTest {
   }
 
   @Test
-  fun extract_choiceType_updateObservationFields() {
+  fun `extract() should use custom TransformSupportServices to generate unsupported nested resource types`() =
+      runBlocking {
+    @Language("JSON")
+    val questionnaireJson =
+      """
+        {
+          "resourceType": "Questionnaire",
+          "id": "immunization-sample",
+          "status": "active",
+          "subjectType": [
+            "Immunization"
+          ],
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-targetStructureMap",
+              "valueCanonical": "https://fhir.labs.smartregister.org/StructureMap/336"
+            }
+          ],
+          "item": [
+            {
+              "linkId": "immunization-name",
+              "type": "text"
+            }
+          ]
+        }
+        """.trimIndent()
+
+    @Language("JSON")
+    val questionnaireResponseJson =
+      """
+        {
+          "resourceType": "QuestionnaireResponse",
+          "questionnaire": "client-registration-sample",
+          "item": [
+            {
+              "linkId": "immunization-name",
+              "answer": [
+                  {
+                    "answerString": "Oxford AstraZeneca"
+                  }
+              ]
+            }
+          ]
+        }
+        """.trimIndent()
+
+    val mapping =
+      """map "http://hl7.org/fhir/StructureMap/ImmunizationReg" = 'ImmunizationReg'
+
+        uses "http://hl7.org/fhir/StructureDefinition/QuestionnaireReponse" as source
+        uses "http://hl7.org/fhir/StructureDefinition/Bundle" as target
+        
+        group ImmunizationReg(source src : QuestionnaireResponse, target bundle: Bundle) {
+            src -> bundle.id = uuid() "rule_c";
+            src -> bundle.type = 'collection' "rule_b";
+            src -> bundle.entry as entry, entry.resource = create('Immunization') as immunization then
+                ExtractImmunization(src, immunization) "rule_z";
+        }
+        
+        group ExtractImmunization(source src : QuestionnaireResponse, target tgt : Immunization) {
+             src -> tgt.reaction = create('Immunization_Reaction') "rule_z1";
+        }"""
+
+    val iParser: IParser = FhirContext.forR4().newJsonParser()
+
+    val uriTestQuestionnaire =
+      iParser.parseResource(Questionnaire::class.java, questionnaireJson) as Questionnaire
+
+    val uriTestQuestionnaireResponse =
+      iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
+        QuestionnaireResponse
+
+    val transformSupportServices = TransformSupportServices(mutableListOf())
+
+    val bundle =
+      ResourceMapper.extract(
+        uriTestQuestionnaire,
+        uriTestQuestionnaireResponse,
+        StructureMapExtractionContext(context, transformSupportServices) { _, worker ->
+          StructureMapUtilities(worker).parse(mapping, "")
+        }
+      )
+
+    assertThat(bundle.entry.get(0).resource).isInstanceOf(Immunization::class.java)
+    assertThat((bundle.entry.get(0).resource as Immunization).reaction[0])
+      .isInstanceOf(Immunization.ImmunizationReactionComponent::class.java)
+  }
+
+  @Test
+  fun extract_choiceType_updateObservationFields() = runBlocking {
     @Language("JSON")
     val questionnaire =
       """{
@@ -1307,7 +1808,6 @@ class ResourceMapperTest {
           "system": "http://loinc.org"
         }
       ],
-      "definition": "http://hl7.org/fhir/StructureDefinition/Observation",
       "extension": [
         {
           "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-itemExtractionContext",
@@ -1340,16 +1840,6 @@ class ResourceMapperTest {
         {
           "type": "group",
           "definition": "http://hl7.org/fhir/StructureDefinition/Observation#Observation.valueQuantity",
-          "extension": [
-            {
-              "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-itemExtractionContext",
-              "valueExpression": {
-                "language": "application/x-fhir-query",
-                "expression": "Quantity",
-                "name": "quantity"
-              }
-            }
-          ],
           "item": [
             {
               "definition": "http://hl7.org/fhir/StructureDefinition/Observation#Observation.valueQuantity.value",
@@ -1455,15 +1945,345 @@ class ResourceMapperTest {
       iParser.parseResource(Questionnaire::class.java, questionnaire) as Questionnaire
     val temperatureQuestionnaireResponse =
       iParser.parseResource(QuestionnaireResponse::class.java, response) as QuestionnaireResponse
-    val bundle: Bundle
-    runBlocking {
-      bundle = ResourceMapper.extract(temperatureQuestionnaire, temperatureQuestionnaireResponse)
-    }
+    val bundle = ResourceMapper.extract(temperatureQuestionnaire, temperatureQuestionnaireResponse)
     val observation = bundle.entry[0].resource as Observation
 
     assertThat(observation.valueQuantity.value).isEqualTo(BigDecimal(36))
     assertThat(observation.valueQuantity.code).isEqualTo("F")
   }
 
+  @Test
+  fun extract_questionnaireItemDisabled() = runBlocking {
+    // https://developer.commure.com/docs/apis/sdc/examples#definition-based-extraction
+    @Language("JSON")
+    val questionnaireJson =
+      """
+        {
+          "resourceType": "Questionnaire",
+          "subjectType": [
+            "Patient"
+          ],
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-itemExtractionContext",
+              "valueExpression": {
+                "language": "application/x-fhir-query",
+                "expression": "Patient",
+                "name": "patient"
+              }
+            }
+          ],
+          "item": [
+            {
+              "linkId": "PR",
+              "type": "group",
+              "item": [
+                {
+                  "linkId": "PR-name",
+                  "type": "group",
+                  "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.name",
+                  "item": [
+                    {
+                      "linkId": "PR-name-text",
+                      "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.name.given",
+                      "type": "string",
+                      "text": "First Name",
+                       "enableWhen": [
+                        {
+                          "question": "question-id",
+                          "operator": "=",
+                          "answerString": "ok"
+                        }
+                      ]
+                    },
+                    {
+                      "linkId": "PR-name-family",
+                      "definition": "http://hl7.org/fhir/StructureDefinition/datatypes#Patient.name.family",
+                      "type": "string",
+                      "text": "Family Name"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      """.trimIndent()
+
+    @Language("JSON")
+    val questionnaireResponseJson =
+      """
+        {
+          "resourceType": "QuestionnaireResponse",
+          "item": [
+            {
+              "linkId": "PR",
+              "item": [
+                {
+                  "linkId": "PR-name",
+                  "item": [
+                    {
+                      "linkId": "PR-name-family",
+                      "answer": [
+                        {
+                          "valueString": "Doe"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      """.trimIndent()
+
+    val iParser: IParser = FhirContext.forR4().newJsonParser()
+    val questionnaire =
+      iParser.parseResource(Questionnaire::class.java, questionnaireJson) as Questionnaire
+    val response =
+      iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
+        QuestionnaireResponse
+    val patient = ResourceMapper.extract(questionnaire, response).entry[0].resource as Patient
+
+    assertThat(patient.name.first().given).isEmpty() // disabled questionnaire item
+    assertThat(patient.name.first().family).isEqualTo("Doe")
+  }
+
+  @Test
+  fun extract_questionnaireInheritedFieldsMapping() {
+    // https://developer.commure.com/docs/apis/sdc/examples#definition-based-extraction
+    @Language("JSON")
+    val questionnaireJson =
+      """
+        {
+          "resourceType": "Questionnaire",
+          "subjectType": [ "Patient" ],
+          "extension": [
+            {
+              "url": "http://hl7.org/fhir/uv/sdc/StructureDefinition/sdc-questionnaire-itemExtractionContext",
+              "valueExpression": {
+                "language": "application/x-fhir-query",
+                "expression": "Patient"
+              }
+            }
+          ],
+          "item": [
+            {
+              "linkId": "a",
+              "type": "group",
+              "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension",
+              "item": [
+                {
+                  "linkId": "deep-nesting-item",
+                  "type": "group",
+                  "item": [
+                    {
+                      "linkId": "a-url",
+                      "type": "string",
+                      "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension.url",
+                      "initial": [
+                        {
+                          "valueString": "http://fhir/StructureDefinition/us-core-ethnicity"
+                        }
+                      ]
+                    },
+                    {
+                      "linkId": "a-value",
+                      "type": "choice",
+                      "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension.value",
+                      "answerOption": [
+                        {
+                          "valueCoding": {
+                            "code": "option 1",
+                            "display": "Option 1"
+                          }
+                        }
+                      ],
+                      "initial": [
+                        {
+                          "valueCoding": {
+                            "code": "option 1",
+                            "display": "Option 1"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "linkId": "b",
+              "type": "group",
+              "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension",
+              "item": [
+                {
+                  "linkId": "b-url",
+                  "type": "string",
+                  "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension.url",
+                  "initial": [
+                    {
+                      "valueString": "http://fhir/StructureDefinition/current-occupation"
+                    }
+                  ]
+                },
+                {
+                  "linkId": "b-value",
+                  "type": "choice",
+                  "definition": "http://hl7.org/fhir/StructureDefinition/Patient#Patient.extension.value",
+                  "answerOption": [
+                    {
+                      "valueCoding": {
+                        "code": "option I",
+                        "display": "Option I"
+                      }
+                    }
+                  ],
+                  "initial": [
+                    {
+                      "valueCoding": {
+                        "code": "option I",
+                        "display": "Option I"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      """.trimIndent()
+
+    @Language("JSON")
+    val questionnaireResponseJson =
+      """
+        {
+          "resourceType": "QuestionnaireResponse",
+          "questionnaire": "Questionnaire/questionnaire-registration-extension",
+          "item": [
+            {
+              "linkId": "a",
+              "item": [
+                {
+                  "linkId": "deep-nesting-item",
+                  "item": [
+                    {
+                      "linkId": "a-url",
+                      "answer": [
+                        {
+                          "valueString": "http://fhir/StructureDefinition/us-core-ethnicity"
+                        }
+                      ]
+                    },
+                    {
+                      "linkId": "a-value",
+                      "answer": [
+                        {
+                          "valueCoding": {
+                            "code": "option 1",
+                            "display": "Option 1"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "linkId": "b",
+              "item": [
+                {
+                  "linkId": "b-url",
+                  "answer": [
+                    {
+                      "valueString": "http://fhir/StructureDefinition/current-occupation"
+                    }
+                  ]
+                },
+                {
+                  "linkId": "b-value",
+                  "answer": [
+                    {
+                      "valueCoding": {
+                        "code": "option i",
+                        "display": "Option I"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      """.trimIndent()
+
+    val iParser: IParser = FhirContext.forR4().newJsonParser()
+    val questionnaire =
+      iParser.parseResource(Questionnaire::class.java, questionnaireJson) as Questionnaire
+    val response =
+      iParser.parseResource(QuestionnaireResponse::class.java, questionnaireResponseJson) as
+        QuestionnaireResponse
+    val patient: Patient
+    runBlocking {
+      patient = ResourceMapper.extract(questionnaire, response).entry[0].resource as Patient
+    }
+
+    assertThat(patient.extension).hasSize(2)
+
+    val extension1 = patient.extension[0]
+
+    assertThat(extension1.url).isEqualTo("http://fhir/StructureDefinition/us-core-ethnicity")
+    assertThat(extension1.value).isInstanceOf(Coding::class.java)
+    assertThat((extension1.value as Coding).code).isEqualTo("option 1")
+    assertThat((extension1.value as Coding).display).isEqualTo("Option 1")
+
+    val extension2 = patient.extension[1]
+
+    assertThat(extension2.url).isEqualTo("http://fhir/StructureDefinition/current-occupation")
+    assertThat(extension2.value).isInstanceOf(Coding::class.java)
+    assertThat((extension2.value as Coding).code).isEqualTo("option i")
+    assertThat((extension2.value as Coding).display).isEqualTo("Option I")
+  }
+
   private fun String.toDateFromFormatYyyyMmDd(): Date? = SimpleDateFormat("yyyy-MM-dd").parse(this)
+
+  class TransformSupportServices(private val outputs: MutableList<Base>) :
+    StructureMapUtilities.ITransformerServices {
+    override fun log(message: String) {}
+
+    fun getContext(): org.hl7.fhir.r4.context.SimpleWorkerContext {
+      return org.hl7.fhir.r4.context.SimpleWorkerContext()
+    }
+
+    @Throws(FHIRException::class)
+    override fun createType(appInfo: Any, name: String): Base {
+      return when (name) {
+        "Immunization_Reaction" -> Immunization.ImmunizationReactionComponent()
+        else -> ResourceFactory.createResourceOrType(name)
+      }
+    }
+
+    override fun createResource(appInfo: Any, res: Base, atRootofTransform: Boolean): Base {
+      if (atRootofTransform) outputs.add(res)
+      return res
+    }
+
+    @Throws(FHIRException::class)
+    override fun translate(appInfo: Any, source: Coding, conceptMapUrl: String): Coding {
+      val cme = ConceptMapEngine(getContext())
+      return cme.translate(source, conceptMapUrl)
+    }
+
+    @Throws(FHIRException::class)
+    override fun resolveReference(appContext: Any, url: String): Base {
+      throw FHIRException("resolveReference is not supported yet")
+    }
+
+    @Throws(FHIRException::class)
+    override fun performSearch(appContext: Any, url: String): List<Base> {
+      throw FHIRException("performSearch is not supported yet")
+    }
+  }
 }

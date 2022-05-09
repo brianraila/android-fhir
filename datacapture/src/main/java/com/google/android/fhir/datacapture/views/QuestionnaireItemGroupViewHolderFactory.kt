@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,35 +19,36 @@ package com.google.android.fhir.datacapture.views
 import android.view.View
 import android.widget.TextView
 import com.google.android.fhir.datacapture.R
-import com.google.android.fhir.datacapture.localizedPrefix
-import com.google.android.fhir.datacapture.localizedText
+import com.google.android.fhir.datacapture.validation.ValidationResult
+import com.google.android.fhir.datacapture.validation.getSingleStringValidationMessage
 
 internal object QuestionnaireItemGroupViewHolderFactory :
   QuestionnaireItemViewHolderFactory(R.layout.questionnaire_item_group_header_view) {
   override fun getQuestionnaireItemViewHolderDelegate() =
     object : QuestionnaireItemViewHolderDelegate {
-      private lateinit var prefixTextView: TextView
-      private lateinit var groupHeader: TextView
+      private lateinit var header: QuestionnaireItemHeaderView
+      private lateinit var error: TextView
+      override lateinit var questionnaireItemViewItem: QuestionnaireItemViewItem
 
       override fun init(itemView: View) {
-        prefixTextView = itemView.findViewById(R.id.prefix)
-        groupHeader = itemView.findViewById(R.id.group_header)
+        header = itemView.findViewById(R.id.header)
+        error = itemView.findViewById(R.id.error)
       }
 
       override fun bind(questionnaireItemViewItem: QuestionnaireItemViewItem) {
-        if (!questionnaireItemViewItem.questionnaireItem.prefix.isNullOrEmpty()) {
-          prefixTextView.visibility = View.VISIBLE
-          prefixTextView.text = questionnaireItemViewItem.questionnaireItem.localizedPrefix
-        } else {
-          prefixTextView.visibility = View.GONE
-        }
-        groupHeader.text = questionnaireItemViewItem.questionnaireItem.localizedText
-        groupHeader.visibility =
-          if (groupHeader.text.isEmpty()) {
-            View.GONE
-          } else {
-            View.VISIBLE
-          }
+        header.bind(questionnaireItemViewItem.questionnaireItem)
+      }
+
+      override fun displayValidationResult(validationResult: ValidationResult) {
+        error.text =
+          if (validationResult.getSingleStringValidationMessage() == "") null
+          else validationResult.getSingleStringValidationMessage()
+
+        error.visibility = if (error.text.isNotEmpty()) View.VISIBLE else View.GONE
+      }
+
+      override fun setReadOnly(isReadOnly: Boolean) {
+        // No user input
       }
     }
 }

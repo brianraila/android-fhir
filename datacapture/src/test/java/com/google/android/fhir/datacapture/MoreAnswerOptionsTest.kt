@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,15 @@ package com.google.android.fhir.datacapture
 
 import android.os.Build
 import com.google.common.truth.Truth.assertThat
+import java.util.Locale
 import kotlin.test.assertFailsWith
+import kotlinx.coroutines.runBlocking
+import org.hl7.fhir.r4.model.BooleanType
 import org.hl7.fhir.r4.model.Coding
+import org.hl7.fhir.r4.model.Extension
 import org.hl7.fhir.r4.model.Questionnaire
+import org.hl7.fhir.r4.model.StringType
+import org.hl7.fhir.r4.utils.ToolingExtensions
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -52,5 +58,71 @@ class MoreAnswerOptionsTest {
     val answerOption = Questionnaire.QuestionnaireItemAnswerOptionComponent()
 
     assertFailsWith<IllegalArgumentException> { answerOption.displayString }
+  }
+
+  @Test
+  fun getDisplayString_validExtension_shouldReturnLocalizedText() {
+    val answerOption =
+      Questionnaire.QuestionnaireItemAnswerOptionComponent().apply {
+        value =
+          Coding().apply {
+            code = "test-code"
+            display = "Test Code"
+            displayElement.apply {
+              addExtension(
+                Extension(ToolingExtensions.EXT_TRANSLATION).apply {
+                  addExtension(Extension("lang", StringType("vi-VN")))
+                  addExtension(Extension("content", StringType("Thí nghiệm")))
+                }
+              )
+            }
+          }
+      }
+    Locale.setDefault(Locale.forLanguageTag("vi-VN"))
+
+    assertThat(answerOption.displayString).isEqualTo("Thí nghiệm")
+  }
+
+  @Test
+  fun getDisplayString_invalidExtension_shouldReturnDisplayValue() {
+    val answerOption =
+      Questionnaire.QuestionnaireItemAnswerOptionComponent().apply {
+        value =
+          Coding().apply {
+            code = "test-code"
+            display = "Test Code"
+            displayElement.apply {
+              addExtension(
+                Extension(ToolingExtensions.EXT_TRANSLATION).apply {
+                  addExtension(Extension("lang", StringType("vi-VN")))
+                }
+              )
+            }
+          }
+      }
+    Locale.setDefault(Locale.forLanguageTag("vi-VN"))
+
+    assertThat(answerOption.displayString).isEqualTo("Test Code")
+  }
+
+  @Test
+  fun optionExclusiveExtension_valueTrue_returnsTrue() = runBlocking {
+    val answerOptionTest = Coding("test", "option", "1")
+    val questionnaire =
+      Questionnaire().apply {
+        id = "a-questionnaire"
+        addItem(
+          Questionnaire.QuestionnaireItemComponent().apply {
+            answerOption =
+              listOf(
+                Questionnaire.QuestionnaireItemAnswerOptionComponent(answerOptionTest).apply {
+                  extension = listOf(Extension(EXTENSION_OPTION_EXCLUSIVE_URL, BooleanType(true)))
+                },
+              )
+          }
+        )
+      }
+
+    assertThat(questionnaire.item.single().answerOption.single().optionExclusive).isTrue()
   }
 }

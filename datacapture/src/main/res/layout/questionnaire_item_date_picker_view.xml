@@ -23,43 +23,32 @@
     android:orientation="vertical"
 >
 
-    <LinearLayout
+    <com.google.android.fhir.datacapture.views.QuestionnaireItemHeaderView
+        android:id="@+id/header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-    >
-
-        <TextView
-            android:id="@+id/prefix"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:visibility="gone"
-        />
-
-        <TextView
-            android:id="@+id/question"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/item_margin_vertical"
-            android:layout_marginEnd="@dimen/item_margin_horizontal"
-        />
-
-    </LinearLayout>
+    />
 
     <com.google.android.material.textfield.TextInputLayout
         xmlns:app="http://schemas.android.com/apk/res-auto"
-        android:id="@+id/textInputLayout"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        android:id="@+id/text_input_layout"
+        style="?attr/questionnaireTextInputLayoutStyle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:startIconDrawable="@drawable/gm_calendar_today_24"
+        app:endIconDrawable="@drawable/gm_calendar_today_24"
+        app:endIconMode="custom"
+        app:errorIconDrawable="@null"
+        app:hintEnabled="true"
     >
 
         <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/textInputEditText"
+            android:id="@+id/text_input_edit_text"
+            style="?attr/editTextInputTextAppearanceQuestionnaire"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:hint="@string/date"
             android:inputType="none"
+            android:singleLine="true"
         />
 
     </com.google.android.material.textfield.TextInputLayout>

@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,14 @@
 package com.google.android.fhir.sync
 
 import android.content.Context
-import android.util.Log
 import androidx.lifecycle.asFlow
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.hasKeyWithValueOfType
 import com.google.android.fhir.DatastoreUtil
 import com.google.android.fhir.FhirEngine
+import com.google.android.fhir.FhirEngineProvider
 import com.google.android.fhir.OffsetDateTimeTypeAdapter
 import com.google.gson.GsonBuilder
 import java.time.OffsetDateTime
@@ -35,9 +34,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.mapNotNull
+import org.hl7.fhir.r4.model.ResourceType
+import timber.log.Timber
 
 class SyncJobImpl(private val context: Context) : SyncJob {
-  private val TAG = javaClass.name
   private val syncWorkType = SyncWorkType.DOWNLOAD_UPLOAD
   private val gson =
     GsonBuilder()
@@ -52,17 +52,9 @@ class SyncJobImpl(private val context: Context) : SyncJob {
   ): Flow<State> {
     val workerUniqueName = syncWorkType.workerName
 
-    Log.i(TAG, "Configuring polling for $workerUniqueName")
+    Timber.d("Configuring polling for $workerUniqueName")
 
-    val periodicWorkRequest =
-      PeriodicWorkRequest.Builder(
-          clazz,
-          periodicSyncConfiguration.repeat.interval,
-          periodicSyncConfiguration.repeat.timeUnit
-        )
-        .setConstraints(periodicSyncConfiguration.syncConstraints)
-        .build()
-
+    val periodicWorkRequest = Sync.createPeriodicWorkRequest(periodicSyncConfiguration, clazz)
     val workManager = WorkManager.getInstance(context)
 
     val flow = stateFlow()
@@ -107,14 +99,23 @@ class SyncJobImpl(private val context: Context) : SyncJob {
    */
   override suspend fun run(
     fhirEngine: FhirEngine,
-    dataSource: DataSource,
-    resourceSyncParams: ResourceSyncParams,
+    downloadManager: DownloadWorkManager,
     subscribeTo: MutableSharedFlow<State>?
   ): Result {
-    val fhirSynchronizer = FhirSynchronizer(context, fhirEngine, dataSource, resourceSyncParams)
-
-    if (subscribeTo != null) fhirSynchronizer.subscribe(subscribeTo)
-
-    return fhirSynchronizer.synchronize()
+    return FhirEngineProvider.getDataSource(context)?.let {
+      FhirSynchronizer(context, fhirEngine, it, downloadManager)
+        .apply { if (subscribeTo != null) subscribe(subscribeTo) }
+        .synchronize()
+    }
+      ?: Result.Error(
+        listOf(
+          ResourceSyncException(
+            ResourceType.Bundle,
+            IllegalStateException(
+              "FhirEngineConfiguration.ServerConfiguration is not set. Call FhirEngineProvider.init to initialize with appropriate configuration."
+            )
+          )
+        )
+      )
   }
 }

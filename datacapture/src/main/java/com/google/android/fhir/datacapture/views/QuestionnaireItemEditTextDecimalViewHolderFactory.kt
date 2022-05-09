@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ internal object QuestionnaireItemEditTextDecimalViewHolderFactory :
   override fun getQuestionnaireItemViewHolderDelegate() =
     object :
       QuestionnaireItemEditTextViewHolderDelegate(
-        InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_SIGNED,
+        InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL,
         isSingleLine = true
       ) {
       override fun getValue(

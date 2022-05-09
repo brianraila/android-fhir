@@ -1,5 +1,5 @@
 /*
- * Copyright 2020 Google LLC
+ * Copyright 2021 Google LLC
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,10 @@ import org.hl7.fhir.r4.model.StringType
  * Any `ViewHolder` containing a `EditText` view that collects text data should use this class.
  */
 internal class QuestionnaireItemEditTextStringViewHolderDelegate(isSingleLine: Boolean) :
-  QuestionnaireItemEditTextViewHolderDelegate(InputType.TYPE_CLASS_TEXT, isSingleLine) {
+  QuestionnaireItemEditTextViewHolderDelegate(
+    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES,
+    isSingleLine
+  ) {
   override fun getValue(
     text: String
   ): QuestionnaireResponse.QuestionnaireResponseItemAnswerComponent? {
